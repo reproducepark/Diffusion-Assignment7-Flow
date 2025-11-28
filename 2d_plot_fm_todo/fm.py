@@ -47,7 +47,7 @@ class FMScheduler(nn.Module):
         # DO NOT change the code outside this part.
         # compute psi_t(x)
 
-        psi_t = x1
+        psi_t = (1 - (1 - self.sigma_min) * t) * x + t * x1
         ######################
 
         return psi_t
@@ -61,7 +61,7 @@ class FMScheduler(nn.Module):
         ######## TODO ########
         # DO NOT change the code outside this part.
         # implement each step of the first-order Euler method.
-        x_next = xt
+        x_next = xt + dt * vt
         ######################
 
         return x_next
@@ -93,12 +93,14 @@ class FlowMatching(nn.Module):
         ######## TODO ########
         # DO NOT change the code outside this part.
         # Implement the CFM objective.
-        if class_label is not None:
-            model_out = self.network(x1, t, class_label=class_label)
-        else:
-            model_out = self.network(x1, t)
+        xt = self.fm_scheduler.compute_psi_t(x1, t, x0)
 
-        loss = x1.mean()
+        if class_label is not None:
+            model_out = self.network(xt, t, class_label=class_label)
+        else:
+            model_out = self.network(xt, t)
+
+        loss = F.mse_loss(model_out, x1 - (1.0 - self.fm_scheduler.sigma_min) * x0)
         ######################
 
         return loss
@@ -138,12 +140,24 @@ class FlowMatching(nn.Module):
         xt = x_T
         for i, t in enumerate(pbar):
             t_next = timesteps[i + 1] if i < len(timesteps) - 1 else torch.ones_like(t)
-            
 
             ######## TODO ########
             # Complete the sampling loop
 
-            xt = self.fm_scheduler.step(xt, torch.zeros_like(xt), torch.zeros_like(t))
+            if do_classifier_free_guidance:
+                u_uncond = self.network(xt, t)
+                u_cond = self.network(xt, t, class_label=class_label)
+                ut = u_uncond + guidance_scale * (u_cond - u_uncond)
+            else:
+                if class_label is not None:
+                    ut = self.network(xt, t, class_label=class_label)
+                else:
+                    ut = self.network(xt, t)
+
+            dt = t_next - t
+            dt = expand_t(dt, xt)
+
+            xt = self.fm_scheduler.step(xt, ut, dt)
 
             ######################
 
