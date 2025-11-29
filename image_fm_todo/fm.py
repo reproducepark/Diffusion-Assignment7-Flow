@@ -47,7 +47,7 @@ class FMScheduler(nn.Module):
         # DO NOT change the code outside this part.
         # compute psi_t(x)
 
-        psi_t = x1
+        psi_t = (1 - (1 - self.sigma_min) * t) * x + t * x1
         ######################
 
         return psi_t
@@ -61,7 +61,7 @@ class FMScheduler(nn.Module):
         ######## TODO ########
         # DO NOT change the code outside this part.
         # implement each step of the first-order Euler method.
-        x_next = xt
+        x_next = xt + dt * vt
         ######################
 
         return x_next
@@ -93,12 +93,14 @@ class FlowMatching(nn.Module):
         ######## TODO ########
         # DO NOT change the code outside this part.
         # Implement the CFM objective.
-        if class_label is not None:
-            model_out = self.network(x1, t, class_label=class_label)
-        else:
-            model_out = self.network(x1, t)
+        xt = self.fm_scheduler.compute_psi_t(x1, t, x0)
 
-        loss = x1.mean()
+        if class_label is not None:
+            model_out = self.network(xt, t, class_label=class_label)
+        else:
+            model_out = self.network(xt, t)
+
+        loss = F.mse_loss(model_out, x1 - (1.0 - self.fm_scheduler.sigma_min) * x0)
         ######################
 
         return loss
@@ -138,12 +140,31 @@ class FlowMatching(nn.Module):
         xt = x_T
         for i, t in enumerate(pbar):
             t_next = timesteps[i + 1] if i < len(timesteps) - 1 else torch.ones_like(t)
-            
 
             ######## TODO ########
             # Complete the sampling loop
 
-            xt = self.fm_scheduler.step(xt, torch.zeros_like(xt), torch.zeros_like(t))
+            if do_classifier_free_guidance:
+                null_label = torch.zeros_like(class_label)
+                cat_labels = torch.cat([null_label, class_label], dim=0)
+
+                x_in = torch.cat([xt, xt], dim=0)  # (2B, C, H, W)
+                t_in = torch.cat([t, t], dim=0)  # (2B,)
+
+                model_out = self.network(x_in, t_in, class_label=cat_labels)
+                u_uncond, u_cond = model_out.chunk(2)
+                ut = u_uncond + guidance_scale * (u_cond - u_uncond)
+            else:
+                if class_label is not None:
+                    ut = self.network(xt, t, class_label=class_label)
+                # 2d diffusion 에서는 cfg 없음.
+                else:
+                    ut = self.network(xt, t)
+
+            dt = t_next - t
+            dt = expand_t(dt, xt)
+
+            xt = self.fm_scheduler.step(xt, ut, dt)
 
             ######################
 
@@ -165,7 +186,7 @@ class FlowMatching(nn.Module):
         torch.save(dic, file_path)
 
     def load(self, file_path):
-        dic = torch.load(file_path, map_location="cpu")
+        dic = torch.load(file_path, map_location="cpu", weights_only=False)
         hparams = dic["hparams"]
         state_dict = dic["state_dict"]
 

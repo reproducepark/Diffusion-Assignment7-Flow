@@ -145,12 +145,19 @@ class FlowMatching(nn.Module):
             # Complete the sampling loop
 
             if do_classifier_free_guidance:
-                u_uncond = self.network(xt, t)
-                u_cond = self.network(xt, t, class_label=class_label)
+                null_label = torch.zeros_like(class_label)
+                cat_labels = torch.cat([null_label, class_label], dim=0)
+
+                x_in = torch.cat([xt, xt], dim=0)  # (2B, C, H, W)
+                t_in = torch.cat([t, t], dim=0)  # (2B,)
+
+                model_out = self.network(x_in, t_in, class_label=cat_labels)
+                u_uncond, u_cond = model_out.chunk(2)
                 ut = u_uncond + guidance_scale * (u_cond - u_uncond)
             else:
                 if class_label is not None:
                     ut = self.network(xt, t, class_label=class_label)
+                # 2d diffusion 에서는 cfg 없음.
                 else:
                     ut = self.network(xt, t)
 
@@ -179,7 +186,7 @@ class FlowMatching(nn.Module):
         torch.save(dic, file_path)
 
     def load(self, file_path):
-        dic = torch.load(file_path, map_location="cpu")
+        dic = torch.load(file_path, map_location="cpu", weights_only=False)
         hparams = dic["hparams"]
         state_dict = dic["state_dict"]
 
