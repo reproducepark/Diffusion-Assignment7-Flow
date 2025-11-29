@@ -31,7 +31,7 @@ def main(args):
             shape = (B, 3, fm.image_resolution, fm.image_resolution)
             samples = fm.sample(
                 shape,
-                num_inference_timesteps=20,
+                num_inference_timesteps=3,
                 class_label=torch.randint(1, 4, (B,)).to(device),
                 guidance_scale=args.cfg_scale,
             )
