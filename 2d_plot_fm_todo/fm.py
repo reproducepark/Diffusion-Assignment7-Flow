@@ -97,6 +97,7 @@ class FlowMatching(nn.Module):
 
         if class_label is not None:
             model_out = self.network(xt, t, class_label=class_label)
+        # 2d diffusion에는 class_label 없음
         else:
             model_out = self.network(xt, t)
 
@@ -157,7 +158,7 @@ class FlowMatching(nn.Module):
             else:
                 if class_label is not None:
                     ut = self.network(xt, t, class_label=class_label)
-                # 2d diffusion 에서는 cfg 없음.
+                # 2d diffusion에는 class_label 없음
                 else:
                     ut = self.network(xt, t)
 
